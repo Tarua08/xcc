@@ -1,3 +1,37 @@
 node_modules/
 .DS_Store
 .env
+.env.*
+
+# Claude Code
+.claude/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+.eggs/
+venv/
+.venv/
+env/
+
+# Testing
+.pytest_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# Logs
+*.log
+venv
+
+# Temp build artifact from deploy.sh
+Dockerfile

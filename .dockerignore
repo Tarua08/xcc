@@ -1,0 +1,41 @@
+# Secrets & local config
+.env
+.env.*
+
+# Virtual environments
+venv/
+.venv/
+env/
+
+# Python caches
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+
+# Tests
+tests/
+x_content_agent/tests/
+.pytest_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# Infrastructure scripts (not needed in container)
+x_content_agent/infra/
+
+# Version control
+.git/
+.gitignore
+
+# IDE & tooling
+.claude/
+.idea/
+.vscode/
+*.swp
+.DS_Store
+
+# Build artifacts
+dist/
+build/
+.eggs/

@@ -1,0 +1,74 @@
+{% extends "base.html" %}
+{% block title %}Dashboard - X Content Agent{% endblock %}
+
+{% block content %}
+<h1 class="mb-8" style="margin-top:20px;">Draft Review Queue</h1>
+
+<div class="filters">
+    <a href="/" class="{{ 'active' if current_filter == 'all' }}">All</a>
+    <a href="/?status=pending" class="{{ 'active' if current_filter == 'pending' }}">
+        Pending ({{ counts.pending }})
+    </a>
+    <a href="/?status=approved" class="{{ 'active' if current_filter == 'approved' }}">
+        Approved ({{ counts.approved }})
+    </a>
+    <a href="/?status=rejected" class="{{ 'active' if current_filter == 'rejected' }}">
+        Rejected ({{ counts.rejected }})
+    </a>
+</div>
+
+{% if drafts %}
+    {% for draft in drafts %}
+    <div class="card">
+        <div class="flex-between mb-8">
+            <div class="flex">
+                <span class="badge badge-{{ draft.status.value }}">{{ draft.status.value }}</span>
+                <span class="source-badge">v{{ draft.variant }}</span>
+                {% if draft.quality_score > 0 %}
+                <span class="meta">Quality: {{ "%.0f"|format(draft.quality_score) }}/100</span>
+                {% endif %}
+            </div>
+            <span class="meta">{{ draft.created_at.strftime('%Y-%m-%d %H:%M') if draft.created_at else '' }}</span>
+        </div>
+
+        <p style="margin-bottom:8px; white-space:pre-wrap;">{{ draft.content }}</p>
+
+        {% if draft.human_lines %}
+        <p class="meta" style="margin-top:4px; font-style:italic;">{{ draft.human_lines }}</p>
+        {% endif %}
+
+        <div class="flex-between mt-8">
+            <a href="/draft/{{ draft.draft_id }}" class="btn">View & Edit</a>
+            {% if draft.status.value == 'pending' %}
+            <div class="flex">
+                <button class="btn btn-approve" onclick="quickAction('{{ draft.draft_id }}', 'approve')">Approve</button>
+                <button class="btn btn-reject" onclick="quickAction('{{ draft.draft_id }}', 'reject')">Reject</button>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+    {% endfor %}
+{% else %}
+    <div class="card">
+        <p>No drafts found{% if current_filter != 'all' %} with status "{{ current_filter }}"{% endif %}.</p>
+    </div>
+{% endif %}
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+async function quickAction(draftId, action) {
+    try {
+        const resp = await fetch(`/api/drafts/${draftId}/${action}`, { method: 'POST' });
+        if (resp.ok) {
+            location.reload();
+        } else {
+            const data = await resp.json();
+            alert(data.detail || 'Action failed');
+        }
+    } catch (e) {
+        alert('Network error: ' + e.message);
+    }
+}
+</script>
+{% endblock %}

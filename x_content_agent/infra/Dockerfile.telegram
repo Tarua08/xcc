@@ -1,0 +1,31 @@
+# Multi-stage build for the Telegram bot Cloud Run service.
+# Runs bot polling in a background thread with a /health endpoint for Cloud Run.
+
+FROM python:3.11-slim AS builder
+
+WORKDIR /build
+COPY requirements.txt .
+RUN pip install --no-cache-dir --prefix=/install -r requirements.txt
+
+# Runtime stage
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# Copy installed packages
+COPY --from=builder /install /usr/local
+
+# Copy application code
+COPY x_content_agent/ ./x_content_agent/
+
+# Non-root user for security
+RUN useradd -m -r appuser && chown -R appuser:appuser /app
+USER appuser
+
+# Cloud Run uses PORT env var
+ENV PORT=8080
+EXPOSE 8080
+
+# Run the bot_runner wrapper (health server + bot polling)
+# Cloud Run manages health checks natively — no HEALTHCHECK needed
+CMD ["python", "-m", "x_content_agent.services.bot_runner"]

@@ -1,0 +1,9 @@
+[project]
+name = "x-content-agent"
+version = "1.0.0"
+description = "Human-in-the-loop AI content agent for X posts"
+requires-python = ">=3.11"
+
+[tool.pytest.ini_options]
+testpaths = ["x_content_agent/tests"]
+asyncio_mode = "auto"

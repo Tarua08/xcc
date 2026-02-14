@@ -1,0 +1,150 @@
+{% extends "base.html" %}
+{% block title %}Draft {{ draft.draft_id }} - X Content Agent{% endblock %}
+
+{% block content %}
+<div style="margin-top:20px;">
+    <a href="/" class="btn" style="margin-bottom:16px;">&larr; Back to Dashboard</a>
+</div>
+
+<h2 class="mb-8">Draft: {{ draft.draft_id }}</h2>
+
+<div class="card">
+    <div class="flex-between mb-8">
+        <div class="flex">
+            <span class="badge badge-{{ draft.status.value }}">{{ draft.status.value }}</span>
+            <span class="source-badge">Variant {{ draft.variant }}</span>
+        </div>
+        <span class="meta">Created: {{ draft.created_at.strftime('%Y-%m-%d %H:%M') if draft.created_at else 'N/A' }}</span>
+    </div>
+
+    {% if draft.quality_score > 0 %}
+    <div class="meta mb-8">
+        Quality Score: {{ "%.0f"|format(draft.quality_score) }}/100
+        {% if draft.quality_notes %} | Notes: {{ draft.quality_notes }}{% endif %}
+    </div>
+    {% endif %}
+
+    <form id="editForm">
+        <label style="font-weight:600; display:block; margin-bottom:4px;">Post Content</label>
+        <textarea id="contentField" rows="4" maxlength="280">{{ draft.content }}</textarea>
+        <div id="charCount" class="char-count">{{ char_count }}/280</div>
+
+        <div class="mt-16">
+            <label style="font-weight:600; display:block; margin-bottom:4px;">
+                Human Signature Lines (max 2 lines)
+            </label>
+            <textarea id="humanLines" rows="2" placeholder="Add your personal touch...">{{ draft.human_lines or '' }}</textarea>
+        </div>
+
+        <div class="mt-16">
+            <label style="font-weight:600; display:block; margin-bottom:4px;">Review Notes</label>
+            <textarea id="reviewNotes" rows="2" placeholder="Optional notes about this draft...">{{ draft.review_notes or '' }}</textarea>
+        </div>
+
+        <div class="flex mt-16" style="gap:8px;">
+            <button type="button" class="btn" onclick="saveDraft()">Save Changes</button>
+            {% if draft.status.value == 'pending' %}
+            <button type="button" class="btn btn-approve" onclick="approveDraft()">Approve</button>
+            <button type="button" class="btn btn-reject" onclick="rejectDraft()">Reject</button>
+            {% endif %}
+        </div>
+    </form>
+</div>
+
+{% if source_item %}
+<h3 class="mt-16 mb-8">Source Item</h3>
+<div class="card">
+    <p><strong>{{ source_item.title }}</strong></p>
+    <p class="meta">Source: {{ source_item.source.value }} | <a href="{{ source_item.url }}" target="_blank" style="color:#58a6ff;">{{ source_item.url }}</a></p>
+    {% if source_item.description %}
+    <p class="mt-8" style="font-size:0.9em;">{{ source_item.description[:500] }}</p>
+    {% endif %}
+</div>
+{% endif %}
+
+<h3 class="mt-16 mb-8">Preview</h3>
+<div class="card" id="preview" style="max-width:500px;">
+    <div style="padding:12px; background:#000; border-radius:12px; font-size:0.95em;">
+        <p id="previewContent" style="white-space:pre-wrap;">{{ draft.content }}</p>
+        <p id="previewHuman" class="meta" style="margin-top:8px; font-style:italic;">{{ draft.human_lines or '' }}</p>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+const contentField = document.getElementById('contentField');
+const charCount = document.getElementById('charCount');
+const previewContent = document.getElementById('previewContent');
+const previewHuman = document.getElementById('previewHuman');
+const humanLines = document.getElementById('humanLines');
+
+contentField.addEventListener('input', () => {
+    const len = contentField.value.length;
+    charCount.textContent = `${len}/280`;
+    charCount.className = len > 280 ? 'char-count over' : 'char-count';
+    previewContent.textContent = contentField.value;
+});
+
+humanLines.addEventListener('input', () => {
+    previewHuman.textContent = humanLines.value;
+});
+
+async function saveDraft() {
+    const body = {
+        content: contentField.value,
+        human_lines: humanLines.value,
+        review_notes: document.getElementById('reviewNotes').value,
+    };
+    if (body.content.length > 280) {
+        alert('Content exceeds 280 characters');
+        return;
+    }
+    try {
+        const resp = await fetch(`/api/drafts/{{ draft.draft_id }}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+        });
+        if (resp.ok) {
+            alert('Draft saved');
+        } else {
+            const data = await resp.json();
+            alert(data.detail || 'Save failed');
+        }
+    } catch (e) {
+        alert('Network error: ' + e.message);
+    }
+}
+
+async function approveDraft() {
+    // Save first, then approve
+    await saveDraft();
+    try {
+        const resp = await fetch(`/api/drafts/{{ draft.draft_id }}/approve`, { method: 'POST' });
+        if (resp.ok) {
+            location.href = '/';
+        } else {
+            const data = await resp.json();
+            alert(data.detail || 'Approve failed');
+        }
+    } catch (e) {
+        alert('Network error: ' + e.message);
+    }
+}
+
+async function rejectDraft() {
+    try {
+        const resp = await fetch(`/api/drafts/{{ draft.draft_id }}/reject`, { method: 'POST' });
+        if (resp.ok) {
+            location.href = '/';
+        } else {
+            const data = await resp.json();
+            alert(data.detail || 'Reject failed');
+        }
+    } catch (e) {
+        alert('Network error: ' + e.message);
+    }
+}
+</script>
+{% endblock %}

@@ -1,0 +1,71 @@
+{% extends "base.html" %}
+{% block title %}Weekly Schedule - X Content Agent{% endblock %}
+
+{% block content %}
+<h1 class="mb-8" style="margin-top:20px;">Weekly Ready-to-Post Schedule</h1>
+<p class="meta mb-8">{{ total }} approved drafts ready for posting. Copy-paste from below.</p>
+
+{% if approved_drafts %}
+<div class="card" style="margin-bottom:16px;">
+    <button class="btn" onclick="copyAll()">Copy All to Clipboard</button>
+</div>
+
+<div id="scheduleContent">
+{% for draft in approved_drafts %}
+    <div class="card">
+        <div class="flex-between mb-8">
+            <span class="badge badge-approved">Ready</span>
+            <span class="meta">{{ draft.created_at.strftime('%Y-%m-%d') if draft.created_at else '' }}</span>
+        </div>
+
+        <div style="background:#000; padding:12px; border-radius:8px; margin-bottom:8px;">
+            <p style="white-space:pre-wrap;" class="post-content">{{ draft.content }}</p>
+            {% if draft.human_lines %}
+            <p style="margin-top:8px; font-style:italic; color:#8b949e;">{{ draft.human_lines }}</p>
+            {% endif %}
+        </div>
+
+        <div class="flex">
+            <button class="btn" onclick="copySingle(this)">Copy</button>
+            <span class="meta">Draft: {{ draft.draft_id }}</span>
+        </div>
+    </div>
+{% endfor %}
+</div>
+{% else %}
+    <div class="card">
+        <p>No approved drafts yet. Go to the <a href="/" style="color:#58a6ff;">dashboard</a> to review pending drafts.</p>
+    </div>
+{% endif %}
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+function copySingle(btn) {
+    const card = btn.closest('.card');
+    const content = card.querySelector('.post-content').textContent;
+    const humanLines = card.querySelector('p[style*="italic"]');
+    let text = content;
+    if (humanLines) text += '\n\n' + humanLines.textContent;
+    navigator.clipboard.writeText(text).then(() => {
+        btn.textContent = 'Copied!';
+        setTimeout(() => btn.textContent = 'Copy', 2000);
+    });
+}
+
+function copyAll() {
+    const posts = document.querySelectorAll('.post-content');
+    let allText = [];
+    posts.forEach((p, i) => {
+        const card = p.closest('.card');
+        const humanLines = card.querySelector('p[style*="italic"]');
+        let text = `--- Post ${i + 1} ---\n${p.textContent}`;
+        if (humanLines) text += '\n' + humanLines.textContent;
+        allText.push(text);
+    });
+    navigator.clipboard.writeText(allText.join('\n\n')).then(() => {
+        alert('All posts copied to clipboard');
+    });
+}
+</script>
+{% endblock %}
