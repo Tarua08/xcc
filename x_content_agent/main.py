@@ -59,7 +59,19 @@ def create_cloud_run_app():
 
     @app.get("/health")
     async def health():
-        return {"status": "healthy"}
+        try:
+            from .shared.firestore_client import FirestoreClient
+            db = FirestoreClient(project_id=os.getenv("GOOGLE_CLOUD_PROJECT"))
+            # Lightweight read to verify connectivity
+            db._db.collection("items").limit(1).get()
+            return {"status": "healthy"}
+        except Exception as e:
+            logger.error("Health check failed: %s", e)
+            from fastapi.responses import JSONResponse
+            return JSONResponse(
+                status_code=503,
+                content={"status": "unhealthy", "error": str(e)},
+            )
 
     return app
 

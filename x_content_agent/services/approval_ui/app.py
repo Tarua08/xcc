@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import logging
 import os
+import threading
 import time
 from collections import defaultdict
 from datetime import datetime, timezone
@@ -31,6 +32,7 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 _rate_limit_store: dict[str, list[float]] = defaultdict(list)
+_rate_limit_lock = threading.Lock()
 RATE_LIMIT_WINDOW = 60  # seconds
 RATE_LIMIT_MAX = 30  # requests per window
 
@@ -39,14 +41,14 @@ def _check_rate_limit(client_ip: str) -> bool:
     """Check if client has exceeded rate limit. Returns True if allowed."""
     now = time.time()
     window_start = now - RATE_LIMIT_WINDOW
-    # Clean old entries
-    _rate_limit_store[client_ip] = [
-        t for t in _rate_limit_store[client_ip] if t > window_start
-    ]
-    if len(_rate_limit_store[client_ip]) >= RATE_LIMIT_MAX:
-        return False
-    _rate_limit_store[client_ip].append(now)
-    return True
+    with _rate_limit_lock:
+        _rate_limit_store[client_ip] = [
+            t for t in _rate_limit_store[client_ip] if t > window_start
+        ]
+        if len(_rate_limit_store[client_ip]) >= RATE_LIMIT_MAX:
+            return False
+        _rate_limit_store[client_ip].append(now)
+        return True
 
 
 # ---------------------------------------------------------------------------
@@ -300,8 +302,18 @@ async def api_weekly_schedule():
 
 @app.get("/health")
 async def health():
-    """Health check endpoint for Cloud Run."""
-    return {"status": "healthy", "timestamp": datetime.now(timezone.utc).isoformat()}
+    """Health check endpoint for Cloud Run — verifies Firestore connectivity."""
+    try:
+        db = get_db()
+        db._db.collection("drafts").limit(1).get()
+        return {"status": "healthy", "timestamp": datetime.now(timezone.utc).isoformat()}
+    except Exception as e:
+        logger.error("Health check failed: %s", e)
+        from fastapi.responses import JSONResponse
+        return JSONResponse(
+            status_code=503,
+            content={"status": "unhealthy", "error": str(e)},
+        )
 
 
 # ---------------------------------------------------------------------------

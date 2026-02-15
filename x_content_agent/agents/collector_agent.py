@@ -10,6 +10,8 @@ from __future__ import annotations
 import json
 import logging
 import re
+import time
+import xml.etree.ElementTree as ET
 from typing import Optional
 
 import httpx
@@ -22,6 +24,42 @@ from ..shared.utils import sanitize_for_prompt
 logger = logging.getLogger(__name__)
 
 HTTP_TIMEOUT = 30.0
+MAX_RETRIES = 3
+RETRY_BACKOFF_BASE = 2  # seconds
+
+
+def _request_with_retry(
+    client: httpx.Client,
+    method: str,
+    url: str,
+    **kwargs,
+) -> httpx.Response:
+    """Make an HTTP request with exponential backoff on transient failures."""
+    last_exc = None
+    for attempt in range(MAX_RETRIES):
+        try:
+            resp = client.request(method, url, **kwargs)
+            if resp.status_code == 429:
+                retry_after = int(resp.headers.get("Retry-After", RETRY_BACKOFF_BASE ** (attempt + 1)))
+                logger.warning("Rate limited by %s, retrying in %ds", url, retry_after)
+                time.sleep(retry_after)
+                continue
+            resp.raise_for_status()
+            return resp
+        except (httpx.TimeoutException, httpx.ConnectError) as e:
+            last_exc = e
+            wait = RETRY_BACKOFF_BASE ** (attempt + 1)
+            logger.warning("Request to %s failed (attempt %d/%d): %s, retrying in %ds", url, attempt + 1, MAX_RETRIES, e, wait)
+            time.sleep(wait)
+        except httpx.HTTPStatusError as e:
+            if e.response.status_code >= 500:
+                last_exc = e
+                wait = RETRY_BACKOFF_BASE ** (attempt + 1)
+                logger.warning("Server error from %s (attempt %d/%d): %s, retrying in %ds", url, attempt + 1, MAX_RETRIES, e, wait)
+                time.sleep(wait)
+            else:
+                raise
+    raise last_exc or httpx.HTTPError(f"Failed after {MAX_RETRIES} retries: {url}")
 
 
 # ---------------------------------------------------------------------------
@@ -45,8 +83,7 @@ def fetch_github_trending() -> dict:
         }
         headers = {"Accept": "application/vnd.github.v3+json"}
         with httpx.Client(timeout=HTTP_TIMEOUT) as client:
-            resp = client.get(url, params=params, headers=headers)
-            resp.raise_for_status()
+            resp = _request_with_retry(client, "GET", url, params=params, headers=headers)
             data = resp.json()
 
         items = []
@@ -79,14 +116,14 @@ def fetch_hackernews_top() -> dict:
     try:
         base_url = "https://hacker-news.firebaseio.com/v0"
         with httpx.Client(timeout=HTTP_TIMEOUT) as client:
-            resp = client.get(f"{base_url}/topstories.json")
-            resp.raise_for_status()
+            resp = _request_with_retry(client, "GET", f"{base_url}/topstories.json")
             story_ids = resp.json()[:30]
 
             items = []
             for sid in story_ids:
-                story_resp = client.get(f"{base_url}/item/{sid}.json")
-                if story_resp.status_code != 200:
+                try:
+                    story_resp = _request_with_retry(client, "GET", f"{base_url}/item/{sid}.json")
+                except Exception:
                     continue
                 story = story_resp.json()
                 if not story or story.get("type") != "story":
@@ -146,26 +183,25 @@ def fetch_arxiv_papers() -> dict:
             "sortOrder": "descending",
         }
         with httpx.Client(timeout=HTTP_TIMEOUT, follow_redirects=True) as client:
-            resp = client.get(url, params=params)
-            resp.raise_for_status()
+            resp = _request_with_retry(client, "GET", url, params=params)
 
-        text = resp.text
         items = []
-        entries = re.findall(r"<entry>(.*?)</entry>", text, re.DOTALL)
-        for entry in entries:
-            entry_id = re.search(r"<id>(.*?)</id>", entry)
-            title = re.search(r"<title>(.*?)</title>", entry, re.DOTALL)
-            summary = re.search(r"<summary>(.*?)</summary>", entry, re.DOTALL)
-            if entry_id and title:
-                paper_url = entry_id.group(1).strip()
+        ns = {"atom": "http://www.w3.org/2005/Atom"}
+        root = ET.fromstring(resp.text)
+        for entry in root.findall("atom:entry", ns):
+            id_el = entry.find("atom:id", ns)
+            title_el = entry.find("atom:title", ns)
+            summary_el = entry.find("atom:summary", ns)
+            if id_el is not None and title_el is not None:
+                paper_url = (id_el.text or "").strip()
                 items.append({
                     "url": paper_url,
                     "title": sanitize_for_prompt(
-                        " ".join(title.group(1).strip().split())
+                        " ".join((title_el.text or "").strip().split())
                     ),
                     "source": SignalSource.ARXIV.value,
                     "description": sanitize_for_prompt(
-                        " ".join((summary.group(1).strip() if summary else "").split())
+                        " ".join((summary_el.text or "").strip().split()) if summary_el is not None else ""
                     )[:500],
                     "metadata": {"arxiv_id": paper_url.split("/")[-1]},
                 })
@@ -202,10 +238,7 @@ def fetch_rss_feeds() -> dict:
         with httpx.Client(timeout=HTTP_TIMEOUT, follow_redirects=True) as client:
             for feed_url in feeds:
                 try:
-                    resp = client.get(feed_url)
-                    if resp.status_code != 200:
-                        logger.warning("RSS feed %s returned %d", feed_url, resp.status_code)
-                        continue
+                    resp = _request_with_retry(client, "GET", feed_url)
 
                     text = resp.text
                     entries = re.findall(r"<entry>(.*?)</entry>", text, re.DOTALL)
@@ -267,13 +300,11 @@ def fetch_reddit_ai() -> dict:
         with httpx.Client(timeout=HTTP_TIMEOUT, headers=headers, follow_redirects=True) as client:
             for sub in subreddits:
                 try:
-                    resp = client.get(
+                    resp = _request_with_retry(
+                        client, "GET",
                         f"https://www.reddit.com/r/{sub}/hot.json",
                         params={"limit": 10},
                     )
-                    if resp.status_code != 200:
-                        logger.warning("Reddit r/%s returned %d", sub, resp.status_code)
-                        continue
 
                     data = resp.json()
                     posts = data.get("data", {}).get("children", [])
@@ -330,10 +361,7 @@ def fetch_producthunt_ai() -> dict:
         }
         with httpx.Client(timeout=HTTP_TIMEOUT, headers=headers, follow_redirects=True) as client:
             # PH has an RSS feed for newest
-            resp = client.get("https://www.producthunt.com/feed")
-            if resp.status_code != 200:
-                logger.warning("Product Hunt feed returned %d", resp.status_code)
-                return {"status": "error", "error_message": f"HTTP {resp.status_code}", "items": []}
+            resp = _request_with_retry(client, "GET", "https://www.producthunt.com/feed")
 
             text = resp.text
             entries = re.findall(r"<item>(.*?)</item>", text, re.DOTALL)

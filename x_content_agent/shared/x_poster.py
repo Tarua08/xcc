@@ -61,10 +61,10 @@ class XPoster:
             dict with 'success', 'tweet_id', and 'tweet_url' on success,
             or 'success' False and 'error' on failure.
         """
-        if len(text) > 4000:
+        if len(text) > 280:
             return {
                 "success": False,
-                "error": f"Tweet exceeds 4000 chars ({len(text)})",
+                "error": f"Tweet exceeds 280 chars ({len(text)})",
             }
 
         try:

@@ -204,7 +204,8 @@ class ContentPipeline:
 
         quality_raw = state.get("quality_results", "")
         quality_results = self._parse_json_from_state(quality_raw)
-        for idx, qr_data in enumerate(quality_results):
+        all_draft_id_set = set(all_draft_ids)
+        for qr_data in quality_results:
             try:
                 if isinstance(qr_data, dict):
                     draft_id = str(qr_data.get("draft_id", ""))
@@ -212,29 +213,26 @@ class ContentPipeline:
                     score = qr_data.get("score", 0)
                     issues = qr_data.get("issues", [])
 
-                    # Try to resolve the draft_id to an actual Firestore doc
-                    resolved_id = None
-                    if draft_id in all_draft_ids:
-                        resolved_id = draft_id
-                    elif idx < len(all_draft_ids):
-                        # Fall back to index-based matching
-                        resolved_id = all_draft_ids[idx]
+                    if not draft_id or draft_id not in all_draft_id_set:
+                        logger.warning(
+                            "Quality result references unknown draft_id '%s', skipping",
+                            draft_id,
+                        )
+                        continue
 
-                    if resolved_id:
-                        updates = {
-                            "quality_score": score,
-                            "quality_notes": "; ".join(issues) if issues else "Passed",
-                        }
-                        if not passed:
-                            updates["status"] = DraftStatus.REJECTED.value
-                        try:
-                            self.db.update_draft(resolved_id, updates)
-                        except Exception:
-                            # If update fails, use set+merge as fallback
-                            logger.debug("update_draft failed for %s, skipping", resolved_id)
+                    updates = {
+                        "quality_score": score,
+                        "quality_notes": "; ".join(issues) if issues else "Passed",
+                    }
+                    if not passed:
+                        updates["status"] = DraftStatus.REJECTED.value
+                    try:
+                        self.db.update_draft(draft_id, updates)
+                    except Exception:
+                        logger.debug("update_draft failed for %s, skipping", draft_id)
 
-                        if passed:
-                            result.drafts_passed_quality += 1
+                    if passed:
+                        result.drafts_passed_quality += 1
             except Exception as e:
                 logger.warning("Failed to apply quality result: %s", e)
                 result.errors.append(f"Quality result error: {e}")

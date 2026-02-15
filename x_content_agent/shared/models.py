@@ -12,7 +12,11 @@ from datetime import datetime, timezone
 from enum import Enum
 from typing import Optional
 
+import logging
+
 from pydantic import BaseModel, Field, field_validator
+
+logger = logging.getLogger(__name__)
 
 
 class SignalSource(str, Enum):
@@ -122,8 +126,10 @@ class DraftPost(BaseModel):
     @classmethod
     def content_length_check(cls, v: str) -> str:
         if len(v) > 280:
-            # Allow slightly over; the quality guard will flag it
-            pass
+            logger.warning(
+                "Draft content is %d chars (over 280 limit); quality guard will flag it",
+                len(v),
+            )
         return v
 
 

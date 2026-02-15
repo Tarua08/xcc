@@ -79,8 +79,8 @@ def check_character_limit(draft_text: str) -> dict:
     return {
         "status": "success",
         "char_count": count,
-        "within_limit": count <= 4000,
-        "over_by": max(0, count - 4000),
+        "within_limit": count <= 280,
+        "over_by": max(0, count - 280),
     }
 
 
